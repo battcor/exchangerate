@@ -5,16 +5,15 @@ This class calculates the commision of a transaction.
 Retrieves BIN information and exchange rates from providers.
 
 
-## How to use
+## Install
 
 ```
-$ git clone https://github.com/battcor/exchangerate exchange
-$ cd exchange/
+$ git clone git@github.com:battcor/exchangerate.git
+$ cd exchangerate/
 $ composer install
-$ php app.php input.txt
 ```
 
-## Output
+## Usage
 
 ```
 $ php app.php input.txt
