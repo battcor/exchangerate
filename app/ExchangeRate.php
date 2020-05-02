@@ -1,4 +1,5 @@
 <?php
+
 /**
  * ExchangeRate
  *
@@ -9,6 +10,12 @@
 
 namespace App;
 
+use App\Config;
+use App\Output\Errorlog;
+use App\Output\OutputInterface;
+use App\Parser\Parser;
+use Exception;
+
 /**
  * This class calculates the commision of a transaction.
  * Retrieves BIN information and exchange rates from providers.
@@ -17,23 +24,41 @@ class ExchangeRate
 {
     public static $rates = null;
 
-    public $config = null;
+    /**
+     * @var \App\Config
+     */
+    public $config;
+
+    /**
+     * @var \App\Parser\Parser
+     */
+    public $parser;
+
+    /**
+     * @var \App\Output\OutputInterface
+     */
+    public $output;
 
     /**
      * Construct
      *
      * @param mixed $config Configuration object
      */
-    public function __construct($config)
+    public function __construct(Config $config, OutputInterface $output = null)
     {
-        $this->config = is_array($config) ?
-            json_decode(json_encode($config)) : $config;
+        $this->config = $config;
+        $this->parser = new Parser();
+        $this->output = $output;
+
+        if ($output === null) {
+            $this->output = new Errorlog();
+        }
     }
 
     /**
      * Calculates commission of a transaction
      *
-     * @param object $txn Object with amount, bin, currency properties
+     * @param array $txn Array of amount, bin, and currency
      *
      * @return mixed Returns rounded up value. False if error occurs.
      */
@@ -43,34 +68,37 @@ class ExchangeRate
 
         // stop process if there are no exchange rates
         if (empty($xchange)) {
-            // show/log error message here
-            return false;
+            throw new Exception('Exchange rates is empty.');
         }
 
-        $amount = $txn->amount;
-        $currency = $txn->currency;
+        $bin = $txn['bin'];
+        $amount = $txn['amount'];
+        $currency = $txn['currency'];
 
         $rate = !empty($xchange->rates->$currency) ?
-            $xchange->rates->$currency : $this->config->base_rate;
+            $xchange->rates->$currency : $this->config->get('base_rate');
 
-        if ($currency === $this->config->base_currency || $rate === 0) {
+        if ($currency === $this->config->get('base_currency') || $rate === 0) {
             $amntFixed = $amount;
         }
 
-        if ($currency !== $this->config->base_currency || $rate > 0) {
+        if ($currency !== $this->config->get('base_currency') || $rate > 0) {
             $amntFixed = $amount / $rate;
         }
 
         // get BIN information
-        $binInfo = $this->getBin($txn->bin);
+        $binInfo = $this->getBin($bin);
 
         $countryCode = !empty($binInfo->country->alpha2) ?
             $binInfo->country->alpha2 : null;
 
         // different factor for EU and Non-EU countries
-        $factor = $this->isEu($countryCode) ? 0.01 : 0.02;
+        $factor = Utils::isEu($countryCode) ? 0.01 : 0.02;
 
-        return ceil($amntFixed * $factor * 100) / 100;
+        // get ceil value
+        $ceil = Utils::ceil($amntFixed * $factor);
+
+        return $this->output->format($ceil);
     }
 
     /**
@@ -81,8 +109,8 @@ class ExchangeRate
     public function getRates()
     {
         if (self::$rates === null) {
-            $api = $this->config->rate;
-            self::$rates = $this->callApi($api);
+            $api = $this->config->get('rate');
+            self::$rates = $this->callProvider($api);
         }
         return self::$rates;
     }
@@ -96,83 +124,27 @@ class ExchangeRate
      */
     public function getBin($bin)
     {
-        $api = $this->config->bin;
-        $api->url = $api->url . '/' . $bin;
-        return $this->callApi($api);
+        $api = $this->config->get('bin');
+        $api['url'] = $api['url'] . '/' . $bin;
+
+        return $this->callProvider($api);
     }
 
     /**
-     * Consumes provider's API
+     * Instantiate API provider class
      *
-     * @param object $api API configuration object
+     * @param array $api
      *
-     * @return mixed
+     * @return mixed Either one of \App\Parser:$supportedParsers
      */
-    protected function callApi($api)
+    public function callProvider($api)
     {
-        $ch = curl_init();
+        $provider = new $api['provider']($api);
+        $provider->connect();
 
-        $opt = [
-            CURLOPT_URL => $api->url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
-            CURLOPT_CUSTOMREQUEST => !empty($api->method) ? $api->method : 'GET'
-        ];
+        // @todo Improve
+        $type = explode('/', explode(';', $provider->contentType)[0])[1];
 
-        if (!empty($api->user) && !empty($api->password)) {
-            $opt[CURLOPT_HTTPAUTH] = CURLAUTH_BASIC;
-            $opt[CURLOPT_USERPWD] = $api->user . ':' . $api->password;
-        }
-
-        if (!empty($api->fields)) {
-            $fields = is_array($api->fields) ?
-                http_build_query($api->fields) : $api->fields;
-            $opt[CURLOPT_POSTFIELDS] = $fields;
-        }
-
-        curl_setopt_array($ch, $opt);
-
-        $response = curl_exec($ch);
-        $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-        curl_close($ch);
-        return $this->parseResponse($response, $contentType);
-    }
-
-    /**
-     * Parses string into an object
-     *
-     * @param string $response    String in json or xml format
-     * @param string $contentType API content-type
-     *
-     * @return mixed
-     */
-    protected function parseResponse($response, $contentType)
-    {
-        if (strstr($contentType, 'json')) {
-            return json_decode($response);
-        }
-
-        if (strstr($contentType, 'xml')) {
-            return simplexml_load_string($response);
-        }
-        return null;
-    }
-
-    /**
-     * Checks if country code belongs to EU
-     *
-     * @param string $code Country code
-     *
-     * @return boolean
-     */
-    protected function isEu($code)
-    {
-        $countries = [
-            'AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GR',
-            'HR', 'HU', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PO', 'PT', 'RO',
-            'SE', 'SI', 'SK'
-        ];
-        return in_array($code, $countries);
+        return $this->parser->parse($provider->response, $type);
     }
 }
-

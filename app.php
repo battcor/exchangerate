@@ -1,4 +1,5 @@
 <?php
+
 /**
  * ExchangeRate
  *
@@ -6,28 +7,22 @@
  *
  * @author Chris Buenafe <christopherbuenafe@gmail.com>
  */
-
 require __DIR__ . '/vendor/autoload.php';
 
 $data = file($argv[1]);
 
-$config = [
-    'base_currency' => 'EUR',
-    'base_rate' => 1,
-    'bin' => [
-        'url' => 'https://lookup.binlist.net'
-    ],
-    'rate' => [
-        'url' => 'https://api.exchangeratesapi.io/latest'
-    ]
-];
+$config = new App\Config(__DIR__ . '/config.php');
+
+// log output into a file
+// $output = new \App\Output\File(__DIR__ . '/output.txt');
+
 $exchange = new App\ExchangeRate($config);
 
 foreach ($data as $line) {
-    $txn = json_decode($line);
-    if (empty($txn)) {
-        // show/log error message here
+    $record = json_decode($line, true);
+    if (empty($record)) {
+        $exchange->output->format('Record is invalid.');
         continue;
     }
-    echo $exchange->process($txn) . "\n";
+    $exchange->process($record);
 }

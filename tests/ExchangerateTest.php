@@ -12,18 +12,8 @@ class ExchangerateTest extends TestCase
         require __DIR__ . '/../vendor/autoload.php';
         require __DIR__ . '/ExchangeRateMock.php';
 
-        $config = json_decode('{
-            "base_currency": "EUR",
-            "base_rate": 1,
-            "bin": {
-                "url": "https://lookup.binlist.net"
-            },
-            "rate": {
-                "url": "https://api.exchangeratesapi.io/latest"
-            }
-        }');
-
-        $app = new ExchangeRateMock($config);
+        $config = new \App\Config(__DIR__ . '/../config.php');
+        $app = new ExchangeRateMock($config, new \App\Output\Handler());
 
         $this->assertNotNull($app->config);
         $this->assertTrue(is_object($app->config));
@@ -38,13 +28,14 @@ class ExchangerateTest extends TestCase
      */
     public function testInvalidConfig()
     {
-        $config = json_decode('{
-            "base_currency": "EUR",
-        }');
+        $invalid = false;
+        try {
+            $config = new \App\Config(__DIR__ . '/config-invalid.php');
+        } catch (Exception $e) {
+            $invalid = true;
+        }
 
-        $app = new ExchangeRateMock($config);
-
-        $this->assertNull($app->config);
+        $this->assertTrue($invalid);
     }
 
     /**
@@ -85,7 +76,7 @@ class ExchangerateTest extends TestCase
      */
     public function testValidTxn($app)
     {
-        $txn = json_decode('{"bin":"4745030","amount":"2000.00","currency":"GBP"}');
+        $txn = json_decode('{"bin":"4745030","amount":"2000.00","currency":"GBP"}', true);
         $this->assertSame(45.88, $app->process($txn));
         return $txn;
     }
@@ -95,11 +86,11 @@ class ExchangerateTest extends TestCase
      */
     public function testTxnNoBin($app)
     {
-        $txn = json_decode('{"amount":"100.00","currency":"GBP"}');
+        $txn = json_decode('{"amount":"100.00","currency":"GBP"}', true);
         try {
             $app->process($txn);
         } catch (Exception $e) {
-            $this->assertStringContainsString('$bin', $e->getMessage());
+            $this->assertStringContainsString('bin', $e->getMessage());
         }
     }
 
@@ -108,11 +99,11 @@ class ExchangerateTest extends TestCase
      */
     public function testTxnNoAmount($app)
     {
-        $txn = json_decode('{"bin":"4745030","currency":"GBP"}');
+        $txn = json_decode('{"bin":"4745030","currency":"GBP"}', true);
         try {
             $app->process($txn);
         } catch (Exception $e) {
-            $this->assertStringContainsString('$amount', $e->getMessage());
+            $this->assertStringContainsString('amount', $e->getMessage());
         }
     }
 
@@ -121,11 +112,11 @@ class ExchangerateTest extends TestCase
      */
     public function testTxnNoCurrency($app)
     {
-        $txn = json_decode('{"bin":"4745030","amount":"100.00"}');
+        $txn = json_decode('{"bin":"4745030","amount":"100.00"}', true);
         try {
             $app->process($txn);
         } catch (Exception $e) {
-            $this->assertStringContainsString('$currency', $e->getMessage());
+            $this->assertStringContainsString('currency', $e->getMessage());
         }
     }
 
@@ -136,6 +127,14 @@ class ExchangerateTest extends TestCase
     public function testEmptyRates($app, $txn)
     {
         $app::$rates = [];
-        $this->assertSame(false, $app->process($txn));
+        $invalid = false;
+
+        try {
+            $app->process($txn);
+        } catch (Exception $e) {
+            $invalid = true;
+        }
+
+        $this->assertTrue($invalid);
     }
 }

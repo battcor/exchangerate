@@ -26,23 +26,23 @@ $ php app.php input.txt
 
 ## Configuration
 
+[config.php](https://github.com/battcor/exchangerate/blob/master/config.php)
+
 ```php
 <?php
 
-require __DIR__ . '/vendor/autoload.php';
-
-$config = [
+return [
     'base_currency' => 'EUR',
     'base_rate' => 1,
     'bin' => [
+        'provider' => '\App\Provider\Bin\BinListNet',
         'url' => 'https://lookup.binlist.net'
     ],
     'rate' => [
+        'provider' => '\App\Provider\Rate\ExchangeRatesApiIo',
         'url' => 'https://api.exchangeratesapi.io/latest'
     ]
 ];
-
-$exchange = new App\ExchangeRate($config);
 ```
 
 ## Tests
